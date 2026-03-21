@@ -1,21 +1,22 @@
 # ============================================================
-# Epic Kiosk - 自动驾驶领取系统
+# Epic Kiosk - 自动驾驶领取系统（本地编译版本）
 # ============================================================
-# 公益站点: https://epic.910501.xyz/
 # GitHub: https://github.com/10000ge10000/epic-kiosk
+# 公益站点: https://epic.910501.xyz/
 # ============================================================
 #
 # 🚀 部署方式：
-#   1. 一键脚本: curl -fsSL https://raw.githubusercontent.com/10000ge10000/epic-kiosk/main/install.sh | bash
-#   2. 手动部署: 修改 API Key 后执行 docker compose up -d
+#   1. Linux 一键部署: curl -fsSL https://raw.githubusercontent.com/10000ge10000/epic-kiosk/main/install.sh | bash
+#   2. 手动部署: 修改 API Key 后执行 docker compose up -d --build
+#   3. NAS 部署: 复制本项目到 NAS，修改 API Key 后通过 Docker Compose 启动
 #
 # ⚠️ 必须修改: SILICONFLOW_API_KEY
 #    获取地址: https://cloud.siliconflow.cn/i/OVI2n57p
 #
 # 📦 镜像说明：
 #   - redis:alpine - 官方镜像，直接拉取
-#   - ghcr.io/...-worker - GitHub Actions 自动构建
-#   - ghcr.io/...-web - GitHub Actions 自动构建
+#   - epic-kiosk-web - 本地编译
+#   - epic-kiosk-worker - 本地编译
 # ============================================================
 
 services:
@@ -39,13 +40,12 @@ services:
 
   # ============================================================
   # Web: 前端服务（FastAPI）
-  # 镜像由 GitHub Actions 自动构建并推送
+  # 本地编译，首次部署约需 2-3 分钟
   # ============================================================
   web:
-    image: ghcr.io/10000ge10000/epic-kiosk-web:latest
-    # 本地开发时取消注释下方两行：
-    # build:
-    #   context: .
+    build:
+      context: .
+    image: epic-kiosk-web:local
     container_name: epic-web
     ports:
       - "18000:8000"
@@ -66,14 +66,13 @@ services:
 
   # ============================================================
   # Worker: 后台任务执行器（浏览器自动化）
-  # 镜像由 GitHub Actions 自动构建并推送
+  # 本地编译，首次部署约需 5-10 分钟
   # ============================================================
   worker:
-    image: ghcr.io/10000ge10000/epic-kiosk-worker:latest
-    # 本地开发时取消注释下方两行：
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile.worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: epic-kiosk-worker:local
     container_name: epic-worker
     user: root
     volumes:

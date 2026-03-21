@@ -1,9 +1,15 @@
 #!/bin/bash
 # ============================================================
-# Epic Kiosk - 自动驾驶领取系统
+# Epic Kiosk - 自动驾驶领取系统（本地部署版）
 # ============================================================
 # GitHub: https://github.com/10000ge10000/epic-kiosk
 # 公益站点: https://epic.910501.xyz/
+# ============================================================
+#
+# 使用方式：
+#   1. 克隆项目后，在项目目录执行: ./install.sh
+#   2. 或一键部署: curl -fsSL https://raw.githubusercontent.com/10000ge10000/epic-kiosk/main/install.sh | bash
+#
 # ============================================================
 
 # 颜色定义
@@ -17,7 +23,10 @@ NC='\033[0m'
 # 打印标题
 print_header() {
     echo -e "${CYAN}"
-    echo "Epic Kiosk - 自动驾驶领取系统"
+    echo "============================================"
+    echo "   Epic Kiosk - 自动驾驶领取系统"
+    echo "   本地部署版"
+    echo "============================================"
     echo -e "${NC}"
 }
 
@@ -95,6 +104,85 @@ show_docker_install_commands() {
     echo ""
 }
 
+# 检查是否在项目目录中
+check_project_directory() {
+    # 检查关键文件是否存在
+    if [ -f "docker-compose.yml" ] && [ -f "Dockerfile" ] && [ -f "Dockerfile.worker" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 克隆项目（仅在非项目目录时执行）
+clone_project() {
+    print_step "获取项目代码"
+
+    # 如果已经在项目目录中，跳过克隆
+    if check_project_directory; then
+        print_success "已在项目目录中，跳过克隆"
+        PROJECT_DIR=$(pwd)
+        return 0
+    fi
+
+    # 询问用户部署目录
+    echo -e "${CYAN}请选择部署位置：${NC}"
+    echo "  1) 当前目录 ($(pwd))"
+    echo "  2) 自定义路径"
+    echo ""
+    read -p "请选择 [1/2, 默认1]: " choice < /dev/tty
+    choice=${choice:-1}
+
+    case $choice in
+        1)
+            PROJECT_DIR=$(pwd)
+            ;;
+        2)
+            read -p "请输入部署路径: " custom_path < /dev/tty
+            if [ -z "$custom_path" ]; then
+                print_error "路径不能为空"
+                exit 1
+            fi
+            PROJECT_DIR="$custom_path"
+            mkdir -p "$PROJECT_DIR"
+            ;;
+        *)
+            print_error "无效选择"
+            exit 1
+            ;;
+    esac
+
+    print_info "部署目录: $PROJECT_DIR"
+
+    # 检查目录是否已有项目
+    if [ -d "$PROJECT_DIR/.git" ]; then
+        print_warning "目录 $PROJECT_DIR 已有 Git 项目"
+        read -p "是否更新代码? [Y/n]: " update_code < /dev/tty
+        update_code=${update_code:-Y}
+
+        if [[ "$update_code" =~ ^[Yy]$ ]]; then
+            cd "$PROJECT_DIR"
+            git pull origin main 2>/dev/null || print_warning "更新失败，继续使用现有代码"
+        fi
+    else
+        # 检查 git
+        if ! command -v git &> /dev/null; then
+            print_info "安装 git..."
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update -qq && sudo apt-get install -y -qq git
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y -q git
+            fi
+        fi
+
+        print_info "克隆项目到 $PROJECT_DIR ..."
+        git clone -b main https://github.com/10000ge10000/epic-kiosk.git "$PROJECT_DIR"
+    fi
+
+    cd "$PROJECT_DIR"
+    print_success "项目准备完成"
+}
+
 # API Key 配置向导
 configure_api_key() {
     print_step "配置 API Key"
@@ -116,6 +204,21 @@ configure_api_key() {
     echo "   控制台 → API 密钥 → 创建新密钥"
     echo "   复制生成的密钥（以 sk- 开头）"
     echo ""
+
+    # 检查是否已配置 API Key
+    if [ -f "docker-compose.yml" ]; then
+        current_key=$(grep "SILICONFLOW_API_KEY=" docker-compose.yml | head -1 | sed 's/.*SILICONFLOW_API_KEY=//')
+        if [[ "$current_key" != "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" && "$current_key" =~ ^sk- ]]; then
+            print_success "已检测到 API Key: ${current_key:0:10}...${current_key: -4}"
+            read -p "是否使用现有 Key? [Y/n]: " use_existing < /dev/tty
+            use_existing=${use_existing:-Y}
+
+            if [[ "$use_existing" =~ ^[Yy]$ ]]; then
+                SILICONFLOW_API_KEY="$current_key"
+                return 0
+            fi
+        fi
+    fi
 
     # 输入 API Key（从 /dev/tty 读取，支持 curl | bash 管道运行）
     while true; do
@@ -145,41 +248,6 @@ configure_api_key() {
     print_success "API Key 已设置"
 }
 
-# 克隆项目
-clone_project() {
-    print_step "获取项目代码"
-
-    PROJECT_DIR="/opt/epic-kiosk"
-
-    if [ -d "$PROJECT_DIR" ]; then
-        print_warning "目录 $PROJECT_DIR 已存在"
-        read -p "是否删除重新克隆? [y/N]: " reclone < /dev/tty
-        reclone=${reclone:-N}
-
-        if [[ "$reclone" =~ ^[Yy]$ ]]; then
-            rm -rf "$PROJECT_DIR"
-        else
-            print_info "使用现有目录"
-            return 0
-        fi
-    fi
-
-    # 检查 git
-    if ! command -v git &> /dev/null; then
-        print_info "安装 git..."
-        if command -v apt-get &> /dev/null; then
-            apt-get update -qq && apt-get install -y -qq git
-        elif command -v yum &> /dev/null; then
-            yum install -y -q git
-        fi
-    fi
-
-    print_info "克隆项目..."
-    git clone -b main https://github.com/10000ge10000/epic-kiosk.git "$PROJECT_DIR"
-
-    print_success "项目克隆完成"
-}
-
 # 配置并启动服务
 deploy_service() {
     print_step "部署服务"
@@ -189,18 +257,25 @@ deploy_service() {
     # 替换 API Key
     print_info "配置 API Key..."
     if [ -f "docker-compose.yml" ]; then
-        sed -i "s|SILICONFLOW_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|SILICONFLOW_API_KEY=$SILICONFLOW_API_KEY|g" docker-compose.yml
+        # 使用 sed 替换 API Key（兼容 macOS 和 Linux）
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s|SILICONFLOW_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|SILICONFLOW_API_KEY=$SILICONFLOW_API_KEY|g" docker-compose.yml
+        else
+            sed -i "s|SILICONFLOW_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|SILICONFLOW_API_KEY=$SILICONFLOW_API_KEY|g" docker-compose.yml
+        fi
+        print_success "API Key 已写入 docker-compose.yml"
     else
         print_error "docker-compose.yml 不存在"
         exit 1
     fi
 
-    # 拉取镜像
-    print_info "拉取镜像（首次需要几分钟）..."
-    docker compose pull 2>&1 || {
-        print_warning "部分镜像拉取失败，尝试本地构建..."
-        docker compose up -d --build
-    }
+    # 本地构建并启动（不拉取云端镜像）
+    print_info "开始构建镜像（首次约需 5-10 分钟）..."
+    print_info "正在构建 Web 服务..."
+    docker compose build web 2>&1 | tail -5
+
+    print_info "正在构建 Worker 服务..."
+    docker compose build worker 2>&1 | tail -5
 
     # 启动服务
     print_info "启动服务..."
@@ -225,7 +300,11 @@ show_complete() {
     PUBLIC_IP=$(curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null)
 
     echo ""
-    echo -e "${GREEN}部署完成！${NC}"
+    echo -e "${GREEN}============================================${NC}"
+    echo -e "${GREEN}   部署完成！${NC}"
+    echo -e "${GREEN}============================================${NC}"
+    echo ""
+    echo -e "${CYAN}项目目录:${NC} $PROJECT_DIR"
     echo ""
     echo -e "${CYAN}访问地址:${NC}"
     if [[ -n "$PUBLIC_IP" && "$PUBLIC_IP" != "127.0.0.1" ]]; then
@@ -235,9 +314,10 @@ show_complete() {
     fi
     echo ""
     echo -e "${CYAN}常用命令:${NC}"
-    echo "  查看状态: docker compose ps"
+    echo "  查看状态: cd $PROJECT_DIR && docker compose ps"
     echo "  查看日志: docker logs epic-worker -f"
-    echo "  重启服务: docker compose restart"
+    echo "  重启服务: cd $PROJECT_DIR && docker compose restart"
+    echo "  更新代码: cd $PROJECT_DIR && git pull && docker compose up -d --build"
     echo ""
     echo -e "${CYAN}相关链接:${NC}"
     echo "  公益站点: https://epic.910501.xyz/"
@@ -270,11 +350,11 @@ main() {
         exit 1
     fi
 
+    # 克隆或确认项目目录
+    clone_project
+
     # 配置 API Key
     configure_api_key
-
-    # 克隆项目
-    clone_project
 
     # 部署服务
     deploy_service

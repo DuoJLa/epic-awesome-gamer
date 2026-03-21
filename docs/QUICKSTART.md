@@ -1,6 +1,23 @@
 # 🚀 快速开始
 
-## 一键部署（仅需 3 步）
+## 一键部署（仅需 1 条命令）
+
+```bash
+# 设置 API Key 并一键部署
+export SILICONFLOW_API_KEY="sk-你的Key"
+curl -fsSL https://raw.githubusercontent.com/10000ge10000/epic-kiosk/main/install.sh | bash
+```
+
+脚本会自动完成：
+- ✅ 检测系统架构
+- ✅ 克隆项目代码
+- ✅ 配置 API Key
+- ✅ 本地编译镜像
+- ✅ 启动服务
+
+---
+
+## 手动部署（3 步）
 
 ### 0️⃣ 准备 API Key
 
@@ -16,20 +33,24 @@
 
 ### 1️⃣ 克隆项目
 ```bash
-git clone -b main https://github.com/10000ge10000/epic-kiosk.git
+git clone https://github.com/10000ge10000/epic-kiosk.git
 cd epic-kiosk
 ```
 
 ### 2️⃣ 配置 API Key
-编辑 `docker-compose.yml`，找到第 68 行：
+编辑 `docker-compose.yml`，找到 `SILICONFLOW_API_KEY` 配置项：
 ```yaml
-- SILICONFLOW_API_KEY=sk-xxx  # 改成你的 SiliconFlow API Key
+- SILICONFLOW_API_KEY=sk-你的Key  # 替换为你的 SiliconFlow API Key
 ```
 
-### 3️⃣ 启动服务
+### 3️⃣ 构建并启动
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
+
+> ⏱️ 首次构建约需 5-10 分钟（下载依赖 + 编译镜像）
+
+---
 
 ## ✅ 访问控制台
 
@@ -57,6 +78,9 @@ docker logs epic-worker -f
 
 # 查看 Web 日志
 docker logs epic-web -f
+
+# 查看所有服务状态
+docker compose ps
 ```
 
 ---
@@ -65,6 +89,16 @@ docker logs epic-web -f
 
 ```bash
 docker compose down
+```
+
+---
+
+## 🔄 更新项目
+
+```bash
+cd epic-kiosk
+git pull
+docker compose up -d --build
 ```
 
 ---
