@@ -10,7 +10,7 @@ dependencies = [
 ]
 requires-python = ">=3.12,<=3.13"
 authors = [
-    { name = "QIN2DIM", email = "yaoqinse@gmail.com" }
+    { name = "一万", email = "10000ge10000@gmail.com" }
 ]
 description = "🍷 Gracefully claim weekly free games from Epic Store."
 readme = "README.md"
