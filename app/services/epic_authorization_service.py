@@ -306,13 +306,20 @@ class EpicAuthorization:
         try:
             # ============================================================
             # SPA 页面需要等待网络完全空闲
-            # Material UI 组件需要额外时间渲染
+            # Material UI 对话框需要额外时间渲染和动画完成
             # ============================================================
             logger.debug("⏳ 等待 EULA 页面加载完成...")
             await self.page.wait_for_load_state("networkidle")
 
-            # 额外等待 React/Material UI 渲染完成（从 2 秒增加到 3 秒）
-            await self.page.wait_for_timeout(3000)
+            # 等待 React/Material UI 渲染完成（对话框动画约 225ms）
+            await self.page.wait_for_timeout(2000)
+
+            # 等待对话框元素出现（确认页面已渲染）
+            try:
+                await self.page.wait_for_selector("#accept", timeout=10000)
+                logger.debug("✅ EULA 接受按钮已渲染")
+            except Exception as e:
+                logger.warning(f"⚠️ 等待按钮超时: {e}")
 
             # ============================================================
             # EULA 接受按钮选择器（按优先级排序）
@@ -322,22 +329,17 @@ class EpicAuthorization:
                 # === 最精确：通过 ID 选择（最稳定）===
                 "#accept",
                 "button#accept",
-                "//button[@id='accept']",
 
                 # === 通过 aria-label 属性（多语言支持）===
                 "//button[@aria-label='接受']",
                 "//button[@aria-label='Accept']",
-                "//button[@aria-label='Akzeptieren']",  # 德语
-                "//button[@aria-label='Accepter']",      # 法语
 
                 # === 通过 type=submit（次优）===
                 "//button[@type='submit']",
 
                 # === 通过文本匹配（多语言）===
-                "//button[normalize-space(text())='Accept']",
                 "//button[normalize-space(text())='接受']",
-                "//button[normalize-space(text())='Agree']",
-                "//button[normalize-space(text())='同意']",
+                "//button[normalize-space(text())='Accept']",
 
                 # === 通过 Material UI class（备用）===
                 "//button[contains(@class, 'MuiButton-containedPrimary')]",
@@ -348,31 +350,52 @@ class EpicAuthorization:
                 try:
                     logger.debug(f"🔍 尝试 EULA 选择器 [{i}/{len(accept_selectors)}]: {selector}")
 
-                    # 增加等待时间，因为 SPA 需要渲染
                     btn = self.page.locator(selector).first
-                    if await btn.is_visible(timeout=5000):
-                        btn_text = await btn.text_content()
-                        logger.info(f"📋 找到 EULA 接受按钮: '{btn_text}' | 选择器: {selector}")
 
-                        # 滚动到按钮位置，确保可见
-                        await btn.scroll_into_view_if_needed()
+                    # 检查按钮是否存在且可见
+                    if not await btn.is_visible(timeout=3000):
+                        logger.debug(f"按钮不可见: {selector}")
+                        continue
 
-                        # 点击按钮
-                        await btn.click()
-                        logger.info("👆 已点击接受按钮，等待页面跳转...")
+                    btn_text = await btn.text_content()
+                    logger.info(f"📋 找到 EULA 接受按钮: '{btn_text}' | 选择器: {selector}")
 
-                        # 等待页面跳转（增加超时时间）
-                        await self.page.wait_for_load_state("networkidle", timeout=20000)
+                    # ============================================================
+                    # 🔥 关键修复：使用多种点击方式确保成功
+                    # 某些情况下 Playwright 的普通点击会被拦截
+                    # ============================================================
 
-                        # 验证是否成功跳转
-                        new_url = self.page.url
-                        logger.debug(f"📋 点击后 URL: {new_url}")
+                    # 方式1：滚动到按钮位置，确保可见
+                    await btn.scroll_into_view_if_needed()
+                    await self.page.wait_for_timeout(500)
 
-                        if "correction/eula" not in new_url and "corrective=" not in new_url:
-                            logger.success("✅ EULA 协议已接受，页面已跳转")
-                            return (True, ErrorType.SUCCESS)
-                        else:
-                            logger.warning("⚠️ 点击后仍在 EULA 页面，尝试下一个选择器")
+                    # 方式2：使用 force=True 绕过可操作性检查
+                    try:
+                        await btn.click(force=True, timeout=5000)
+                        logger.info("👆 已点击接受按钮 (force=True)")
+                    except Exception as click_err:
+                        logger.warning(f"普通点击失败，尝试 JS 点击: {click_err}")
+                        # 方式3：使用 JavaScript 直接点击
+                        await btn.evaluate("el => el.click()")
+                        logger.info("👆 已点击接受按钮 (JS evaluate)")
+
+                    # 等待页面跳转（增加超时时间到 30 秒）
+                    logger.info("⏳ 等待页面跳转...")
+                    await self.page.wait_for_load_state("networkidle", timeout=30000)
+
+                    # 额外等待，确保重定向完成
+                    await self.page.wait_for_timeout(2000)
+
+                    # 验证是否成功跳转
+                    new_url = self.page.url
+                    logger.debug(f"📋 点击后 URL: {new_url}")
+
+                    if "correction/eula" not in new_url and "corrective=" not in new_url:
+                        logger.success("✅ EULA 协议已接受，页面已跳转")
+                        return (True, ErrorType.SUCCESS)
+                    else:
+                        logger.warning("⚠️ 点击后仍在 EULA 页面，尝试下一个选择器")
+
                 except Exception as e:
                     logger.debug(f"EULA 选择器 '{selector}' 失败: {e}")
                     continue
