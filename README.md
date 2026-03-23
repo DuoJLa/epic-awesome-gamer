@@ -172,6 +172,27 @@ epic-kiosk/
 
 ---
 
+## 🔄 版本升级
+
+已部署用户升级到最新版本：
+
+```bash
+cd /epic-kiosk
+
+# 拉取最新代码
+git pull
+
+# 重新构建并启动（保留数据）
+docker compose up -d --build
+```
+
+**仅升级 Worker（核心逻辑）**：
+```bash
+docker compose build worker && docker compose up -d worker
+```
+
+---
+
 ## 🐛 故障排查
 
 ### 常见问题

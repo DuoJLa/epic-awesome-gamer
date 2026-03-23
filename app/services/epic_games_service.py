@@ -108,6 +108,90 @@ class EpicAgent:
         self._namespaces: List[str] = []
         self._cookies = None
 
+    async def _handle_eula_correction(self) -> bool:
+        """
+        处理 EULA 修正页面
+
+        Epic Games 在某些情况下会将用户重定向到 EULA 修正页面：
+        - 新注册账号首次登录
+        - Epic 更新服务条款
+        - 账号长期未登录
+        - 账号在新设备/地区登录
+
+        页面特点：
+        - SPA 单页应用（React + Material UI），内容动态渲染
+        - 只有"拒绝"和"接受"两个按钮，无复选框
+        - 接受按钮特征：id="accept", type="submit"
+
+        Returns:
+            bool: True 表示成功处理 EULA，False 表示无需处理或处理失败
+        """
+        current_url = self.page.url
+
+        # 检测是否在 EULA 修正页面
+        if "correction/eula" not in current_url:
+            return False
+
+        logger.warning("⚠️ 检测到 EULA 修正页面，尝试自动接受协议...")
+
+        try:
+            # SPA 页面需要等待网络完全空闲
+            await self.page.wait_for_load_state("networkidle")
+
+            # 额外等待 React 渲染完成
+            await self.page.wait_for_timeout(2000)
+
+            # ============================================================
+            # EULA 接受按钮选择器（按优先级排序）
+            # 按钮特征: <button id="accept" type="submit">接受</button>
+            # ============================================================
+            accept_selectors = [
+                # 最精确：通过 ID 选择（最稳定）
+                "#accept",
+                "button#accept",
+                "//button[@id='accept']",
+
+                # 通过 type=submit（次优）
+                "//button[@type='submit']",
+
+                # 通过文本匹配（多语言）
+                "//button[normalize-space(text())='Accept']",
+                "//button[normalize-space(text())='接受']",
+                "//button[normalize-space(text())='Akzeptieren']",
+                "//button[normalize-space(text())='Accepter']",
+            ]
+
+            # 尝试点击接受按钮
+            for selector in accept_selectors:
+                try:
+                    btn = self.page.locator(selector).first
+                    # 增加等待时间，因为 SPA 需要渲染
+                    if await btn.is_visible(timeout=5000):
+                        btn_text = await btn.text_content()
+                        logger.info(f"📋 点击 EULA 接受按钮: '{btn_text}' | 选择器: {selector}")
+                        await btn.click()
+
+                        # 等待页面跳转
+                        await self.page.wait_for_load_state("networkidle", timeout=15000)
+
+                        # 验证是否成功跳转
+                        new_url = self.page.url
+                        if "correction/eula" not in new_url:
+                            logger.success("✅ EULA 协议已接受，页面已跳转")
+                            return True
+                        else:
+                            logger.warning("⚠️ 点击后仍在 EULA 页面，尝试下一个选择器")
+                except Exception as e:
+                    logger.debug(f"EULA 选择器 '{selector}' 失败: {e}")
+                    continue
+
+            logger.error("❌ 未能找到 EULA 接受按钮")
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ 处理 EULA 页面异常: {e}")
+            return False
+
     async def _sync_order_history(self):
         if self._orders:
             return
@@ -136,7 +220,37 @@ class EpicAgent:
     async def _should_ignore_task(self) -> bool:
         self._ctx_cookies_is_available = False
         await self.page.goto(URL_CLAIM, wait_until="domcontentloaded")
-        status = await self.page.locator("//egs-navigation").get_attribute("isloggedin")
+
+        # ============================================================
+        # 🔥 EULA 修正页面检测与处理
+        # Epic Games 可能会重定向到 EULA 页面，需要自动接受协议
+        # ============================================================
+        max_eula_attempts = 3
+        for attempt in range(max_eula_attempts):
+            current_url = self.page.url
+            if "correction/eula" in current_url or "corrective=" in current_url:
+                logger.warning(f"⚠️ 检测到修正页面（尝试 {attempt + 1}/{max_eula_attempts}）")
+                if await self._handle_eula_correction():
+                    # EULA 处理成功后，重新导航到目标页面
+                    await self.page.goto(URL_CLAIM, wait_until="domcontentloaded")
+                else:
+                    logger.error("❌ EULA 处理失败，跳过此账号")
+                    return False
+            else:
+                break
+
+        # 尝试获取登录状态，增加超时处理
+        try:
+            status = await self.page.locator("//egs-navigation").get_attribute("isloggedin", timeout=10000)
+        except Exception as e:
+            # 如果超时，可能还在修正页面或有其他问题
+            current_url = self.page.url
+            if "correction" in current_url or "eula" in current_url:
+                logger.error("❌ 仍在修正页面，无法继续")
+                return False
+            logger.error(f"❌ 获取登录状态超时: {e}")
+            return False
+
         if status == "false":
             logger.error("❌ Cookie 无效，账号未登录")
             return False
