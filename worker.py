@@ -437,7 +437,8 @@ def run_task(task_data):
             if "任务完成" in line or "领取成功" in line:
                 has_critical_error = False
 
-            if "Authentication completed" in line or "already logged in" in line or "Epic Games 已登录" in line:
+            # 登录成功识别（匹配多种日志格式）
+            if "Authentication completed" in line or "already logged in" in line or "Epic Games 已登录" in line or "✅ 登录成功" in line:
                 r.set(f"status:{email}", "✅ 登录成功", ex=3600)
                 is_login_success = True
 
